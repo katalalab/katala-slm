@@ -4,7 +4,11 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![Candle](https://img.shields.io/badge/ML-Candle-green)
 
-Katala SLM is a Rust-first medical-domain small language model framework with a KS verification layer.
+katala-slmは、RustとCandleフレームワークをベースにした、医療領域向けの小規模言語モデルと出力検証機構の研究フレームワークです。モデルによる回答生成に加えて、参照元の根拠情報やスコアの算出を試み、あらかじめ定義された特定の禁忌キーワードの有無を検出してラベル付けを行います。
+
+回答文に対して参照根拠のレベルやスコアを付与する検証処理を研究したい場面や、特定の禁忌キーワードを検知して警告ラベルを添えるパイプラインを試作したい場面に向いています。
+
+禁忌チェック層は例示的な規則に基づくキーワード照合にとどまり、検知されなかったことが安全であることを意味しません。臨床的な判断を行うためのツールではなく、検出結果の提示と研究用途に限定されています。
 
 ## Scope and limits — read before using any output
 
