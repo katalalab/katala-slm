@@ -63,8 +63,11 @@ With the dependency versions in this lockfile, the declared compiler lower
 bound is at least Rust 1.88: Candle 0.11 requires `zip` 8.6.0, which declares
 Rust 1.88. This is a dependency requirement, not a verified minimum supported
 Rust version (MSRV). Compatibility with Rust 1.88 has not been tested.
+See the [Candle dependency declaration](https://github.com/huggingface/candle/blob/0.11.0/candle-core/Cargo.toml)
+and [zip version metadata](https://crates.io/api/v1/crates/zip/8.6.0).
 
-The existing Linux CPU CI passed all 56 tests. Its Ubuntu 24.04 runner image
+The [Linux CPU CI](https://github.com/katalalab/katala-slm/actions/runs/36889703972/job/110461918455)
+passed all 56 tests. Its [Ubuntu 24.04 runner image](https://github.com/actions/runner-images/blob/ubuntu24/20260927.320/images/ubuntu/Ubuntu2404-Readme.md)
 lists Rust and Cargo 1.98.1; the job did not print the compiler version directly.
 The local toolchain also reports Rust and Cargo 1.98.1, but a local offline test
 attempt stopped before compilation because the `candle-nn` registry metadata
