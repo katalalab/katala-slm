@@ -66,12 +66,11 @@ Rust version (MSRV). Compatibility with Rust 1.88 has not been tested.
 See the [Candle dependency declaration](https://github.com/huggingface/candle/blob/0.11.0/candle-core/Cargo.toml)
 and [zip version metadata](https://crates.io/api/v1/crates/zip/8.6.0).
 
-The [Linux CPU CI](https://github.com/katalalab/katala-slm/actions/runs/36889703972/job/110461918455)
-passed all 56 tests. Its [Ubuntu 24.04 runner image](https://github.com/actions/runner-images/blob/ubuntu24/20260927.320/images/ubuntu/Ubuntu2404-Readme.md)
-lists Rust and Cargo 1.98.1; the job did not print the compiler version directly.
-The local toolchain also reports Rust and Cargo 1.98.1, but a local offline test
-attempt stopped before compilation because the `candle-nn` registry metadata
-was not cached.
+The [Linux CPU CI](https://github.com/katalalab/katala-slm/actions/runs/38053305587)
+passed all 56 tests on main commit `1cc92d821f7daca2b4d9354eaef9ad330927a5a2`.
+This verifies the locked CPU dependencies, including the project's tokenizers
+0.23.2 and Candle's separate tokenizers 0.22.2 dependency. It does not establish
+the project MSRV or a compiler version below the dependency requirement.
 
 After the locked dependencies are available locally, run the CPU regression
 suite without downloading models or starting the API server:
