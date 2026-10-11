@@ -17,9 +17,24 @@ fn transformer_forward_has_expected_shape() -> Result<()> {
     };
     let model = TransformerModel::new(config.clone(), true)?;
 
-    let input =
-        Tensor::from_vec(vec![1u32, 2, 3, 4], (1, 4), &model.device)?.to_dtype(DType::U32)?;
-    let logits = model.forward(&input)?;
-    assert_eq!(logits.dims3()?, (1, 4, config.vocab_size));
+    let batched_input = Tensor::from_vec(vec![1u32, 2, 3, 4, 5, 6, 7, 8], (2, 4), &model.device)?
+        .to_dtype(DType::U32)?;
+    let batched_logits = model.forward(&batched_input)?.to_vec3::<f32>()?;
+    assert_eq!(batched_logits.len(), 2);
+    assert_eq!(batched_logits[0].len(), 4);
+    assert_eq!(batched_logits[0][0].len(), config.vocab_size);
+
+    for (idx, tokens) in [[1u32, 2, 3, 4], [5u32, 6, 7, 8]].iter().enumerate() {
+        let input =
+            Tensor::from_vec(tokens.to_vec(), (1, 4), &model.device)?.to_dtype(DType::U32)?;
+        let logits = model.forward(&input)?.to_vec3::<f32>()?;
+        let max_delta = batched_logits[idx]
+            .iter()
+            .flatten()
+            .zip(logits[0].iter().flatten())
+            .map(|(batched, single)| (batched - single).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_delta < 1e-4, "batch={idx} max_delta={max_delta}");
+    }
     Ok(())
 }

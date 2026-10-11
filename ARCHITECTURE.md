@@ -22,7 +22,7 @@ It combines KS-series verification methodology with state-of-the-art SLM techniq
 
 ### 2. Inference Engine (`src/inference/`)
 - Custom CUDA kernels via `cudarc` crate (optional, CPU fallback)
-- KV-cache with quantization (8-bit/4-bit)
+- Incremental per-request KV cache (unquantized, batch size 1); the INT8/INT4 quantizer is not wired into generation
 - Speculative decoding support
 - Continuous batching for serving
 
