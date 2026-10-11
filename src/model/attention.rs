@@ -37,10 +37,15 @@ impl GqaAttention {
         })
     }
 
-    fn apply_rope(&self, x: Tensor, seq_len: usize) -> Result<Tensor> {
-        let (_b, h, _s, d) = x.dims4()?;
+    fn apply_rope(&self, x: Tensor, seq_len: usize, position_offset: usize) -> Result<Tensor> {
+        let (_b, _h, _s, d) = x.dims4()?;
         let half = d / 2;
-        let positions = Tensor::arange(0u32, seq_len as u32, &self.device)?.to_dtype(DType::F32)?;
+        let positions = Tensor::arange(
+            position_offset as u32,
+            (position_offset + seq_len) as u32,
+            &self.device,
+        )?
+        .to_dtype(DType::F32)?;
         let inv_freq: Vec<f32> = (0..half)
             .map(|i| 1.0f32 / self.rope_theta.powf((2 * i) as f64 / d as f64) as f32)
             .collect();
@@ -58,10 +63,7 @@ impl GqaAttention {
         let y2 = x1
             .broadcast_mul(&sin)?
             .broadcast_add(&x2.broadcast_mul(&cos)?)?;
-        Tensor::cat(&[&y1, &y2], 3).map(|t| {
-            t.reshape((x.dims1().unwrap_or_default(), h, seq_len, d))
-                .unwrap_or(t)
-        })
+        Tensor::cat(&[&y1, &y2], 3)
     }
 
     fn repeat_kv(&self, x: Tensor) -> Result<Tensor> {
@@ -77,6 +79,18 @@ impl GqaAttention {
     }
 
     pub fn forward(&self, x: &Tensor, mask: Option<&Tensor>) -> Result<Tensor> {
+        self.forward_with_cache(x, None, None, 0, mask)
+            .map(|(output, _, _)| output)
+    }
+
+    pub fn forward_with_cache(
+        &self,
+        x: &Tensor,
+        past_key: Option<&Tensor>,
+        past_value: Option<&Tensor>,
+        position_offset: usize,
+        mask: Option<&Tensor>,
+    ) -> Result<(Tensor, Tensor, Tensor)> {
         let (b, s, _) = x.dims3()?;
 
         let q = self
@@ -95,10 +109,19 @@ impl GqaAttention {
             .reshape((b, s, self.num_key_value_heads, self.head_dim))?
             .transpose(1, 2)?;
 
-        let q = self.apply_rope(q, s)?;
-        let k = self.apply_rope(k, s)?;
-        let k = self.repeat_kv(k)?;
-        let v = self.repeat_kv(v)?;
+        let q = self.apply_rope(q, s, position_offset)?;
+        let current_key = self.apply_rope(k, s, position_offset)?;
+        let current_value = v;
+        let all_key = match past_key {
+            Some(past) => Tensor::cat(&[past, &current_key], 2)?,
+            None => current_key.clone(),
+        };
+        let all_value = match past_value {
+            Some(past) => Tensor::cat(&[past, &current_value], 2)?,
+            None => current_value.clone(),
+        };
+        let k = self.repeat_kv(all_key)?;
+        let v = self.repeat_kv(all_value)?;
 
         let scale = 1.0f64 / (self.head_dim as f64).sqrt();
         let attn_scores = q.matmul(&k.transpose(2, 3)?)?.affine(scale, 0.0)?;
@@ -108,6 +131,6 @@ impl GqaAttention {
         };
         let attn = ops::softmax_last_dim(&attn_scores)?;
         let ctx = attn.matmul(&v)?.transpose(1, 2)?.reshape((b, s, ()))?;
-        self.o_proj.forward(&ctx)
+        Ok((self.o_proj.forward(&ctx)?, current_key, current_value))
     }
 }
