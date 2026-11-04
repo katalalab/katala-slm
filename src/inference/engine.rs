@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::Result;
 use candle_core::{DType, Tensor};
@@ -9,10 +9,7 @@ use crate::{
     model::{config::ModelConfig, transformer::TransformerModel},
 };
 
-use super::{
-    kv_cache::{KvCache, Quantization},
-    sampler::Sampler,
-};
+use super::sampler::Sampler;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GenerateOptions {
@@ -35,25 +32,17 @@ pub struct InferenceEngine {
     pub model: Arc<TransformerModel>,
     pub tokenizer: Arc<TokenizerWrapper>,
     pub verifier: Arc<Verifier>,
-    kv_cache: Mutex<KvCache>,
 }
 
 impl InferenceEngine {
     pub fn new(config: ModelConfig, force_cpu: bool) -> Result<Self> {
-        let model = Arc::new(TransformerModel::new(config.clone(), force_cpu)?);
+        let model = Arc::new(TransformerModel::new(config, force_cpu)?);
         let tokenizer = Arc::new(TokenizerWrapper::from_builtin()?);
         let verifier = Arc::new(Verifier::default());
-        let kv_cache = Mutex::new(KvCache::new(
-            config.num_hidden_layers,
-            config.max_position_embeddings,
-            Quantization::Int8,
-        ));
-
         Ok(Self {
             model,
             tokenizer,
             verifier,
-            kv_cache,
         })
     }
 
@@ -79,14 +68,9 @@ impl InferenceEngine {
 
     pub fn generate_verified(
         &self,
-        prompt: &str,
-        options: GenerateOptions,
+        _prompt: &str,
+        _options: GenerateOptions,
     ) -> Result<VerifiedAnswer> {
-        let mut cache = self.kv_cache.lock().expect("kv cache mutex poisoned");
-        cache.clear();
-        drop(cache);
-
-        let answer = self.generate(prompt, options)?;
-        Ok(self.verifier.verify(prompt, &answer, &[]))
+        anyhow::bail!("model loading is not supported")
     }
 }

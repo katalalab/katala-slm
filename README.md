@@ -91,35 +91,35 @@ cargo build --release --features cuda
 ```
 
 ## Usage
+
+Model checkpoint loading is not implemented. As a temporary safeguard, supplying
+both `infer` (with or without `--model`) and `serve` return an error before model
+initialization, rather than silently ignoring a
+requested checkpoint or reporting an answer from untrained weights as inference.
+A future loader needs a defined checkpoint, model configuration, tokenizer and EOS
+contract, plus an end-to-end test showing that loaded weights affect generation.
+The lower-level `run_server` API can still be called explicitly with an untrained
+engine. Its `/health` and `/v1/medical/generate` endpoints return HTTP 503 while
+model loading is unavailable. The library server has no authentication; callers
+choose the listening address.
+The lower-level `InferenceEngine::generate` remains available for experiments with
+untrained weights; `generate_verified` returns an error. None of these paths provides
+pretrained medical inference or clinical use.
+
 ```bash
-# Inference CLI
+# Reports an error until checkpoint loading is implemented
 cargo run --release -- infer --prompt "Influenza treatment options?"
 
-# API server
+# Reports an error; the CLI does not start a server
 cargo run --release -- serve --port 8080
 ```
 
-### API Request
+### Library server API request (returns HTTP 503)
 ```bash
 curl -X POST http://localhost:8080/v1/medical/generate \
   -H 'Content-Type: application/json' \
   -d '{"prompt":"What is first-line treatment for influenza?"}'
 ```
 
-### API Response
-```json
-{
-  "answer": "...",
-  "evidence_level": "B",
-  "sources": [
-    {
-      "source_id": "cdc-flu-antiviral",
-      "title": "CDC Influenza Antiviral Guidance",
-      "url": "https://www.cdc.gov/flu/professionals/antivirals/index.htm",
-      "snippet": "Early antiviral treatment is recommended for high-risk patients."
-    }
-  ],
-  "confidence": 0.72,
-  "contraindications": []
-}
-```
+The response reports `Generation unavailable`; it is not a medical answer or
+evidence assessment.

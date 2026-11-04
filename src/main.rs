@@ -45,6 +45,7 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+    ensure_model_available(&cli.command)?;
     let config = ModelConfig::default();
     let engine = Arc::new(InferenceEngine::new(config, cli.cpu)?);
 
@@ -70,4 +71,39 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn ensure_model_available(command: &Commands) -> Result<()> {
+    match command {
+        Commands::Infer { .. } | Commands::Serve { .. } => {
+            anyhow::bail!("model loading is not supported")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commands_reject_before_model_initialization() {
+        for args in [
+            vec!["katala-slm", "infer", "--prompt", "test"],
+            vec![
+                "katala-slm",
+                "infer",
+                "--model",
+                "synthetic",
+                "--prompt",
+                "test",
+            ],
+            vec!["katala-slm", "serve", "--port", "0"],
+        ] {
+            let cli = Cli::try_parse_from(args).expect("synthetic CLI arguments");
+            assert!(ensure_model_available(&cli.command)
+                .unwrap_err()
+                .to_string()
+                .contains("model loading is not supported"));
+        }
+    }
 }
