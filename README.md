@@ -99,8 +99,8 @@ CLI checkpoint loading is not implemented. As a temporary safeguard, supplying
 both `infer` (with or without `--model`) and `serve` return an error before model
 initialization, rather than silently ignoring a
 requested checkpoint or reporting an answer from untrained weights as inference.
-A future CLI path needs a fully validated generation contract and an end-to-end
-test showing that loaded weights affect generated tokens.
+A future CLI path needs a fully validated generation contract beyond the current
+synthetic CPU tests, which confirm that loaded weights can change generated tokens.
 The lower-level `run_server` API can still be called explicitly with an untrained
 engine. Its `/health` and `/v1/medical/generate` endpoints return HTTP 503 while
 model loading is unavailable. The library server has no authentication; callers
@@ -144,6 +144,8 @@ symlink can mix generations. Use a locally controlled, stable bundle directory.
 The loader does not establish provenance, training quality, medical safety, or
 correct tokenization for an external model. Experimental logits do not constitute
 validated inference.
+
+### Experimental sampling
 The experimental sampler uses temperature-scaled softmax and samples from the
 smallest probability-sorted prefix whose cumulative probability reaches `top_p`;
 ties are ordered by token ID. `temperature` must be finite and greater than zero,

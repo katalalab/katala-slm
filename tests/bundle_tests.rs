@@ -1,6 +1,10 @@
 use anyhow::Result;
 use candle_core::{DType, Device, Tensor};
+use katala_slm::ks::verify::Verifier;
 use katala_slm::model::bundle::ResearchBundle;
+use katala_slm::{GenerateOptions, InferenceEngine};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
+use std::sync::Arc;
 use std::{collections::HashMap, fs, path::Path};
 
 fn fixture(dir: &Path, altered: bool, fault: &str) -> Result<()> {
@@ -76,6 +80,150 @@ fn loaded_synthetic_weights_change_logits() -> Result<()> {
     assert_ne!(x, y);
     assert_eq!(a.tokenizer.encode("hello")?, vec![1]);
     assert_eq!(a.tokenizer.eos_token_id(), 2);
+    Ok(())
+}
+
+fn set_winner(dir: &Path, winner: usize) -> Result<()> {
+    let path = dir.join("weights.safetensors");
+    let mut tensors = candle_core::safetensors::load(&path, &Device::Cpu)?;
+    let mut values = vec![0f32; 16];
+    for index in 0..4 {
+        values[winner * 4 + index] = 10.0;
+    }
+    tensors.insert(
+        "lm_head.weight".into(),
+        Tensor::from_vec(values, (4, 4), &Device::Cpu)?,
+    );
+    candle_core::safetensors::save(&tensors, path)?;
+    Ok(())
+}
+
+fn engine_from(dir: &Path) -> Result<InferenceEngine> {
+    let bundle = ResearchBundle::load(dir)?;
+    Ok(InferenceEngine {
+        model: Arc::new(bundle.model),
+        tokenizer: Arc::new(bundle.tokenizer),
+        verifier: Arc::new(Verifier::default()),
+    })
+}
+
+#[derive(Default)]
+struct CountingRng {
+    draws: usize,
+    value: u64,
+}
+
+impl RngCore for CountingRng {
+    fn next_u32(&mut self) -> u32 {
+        self.draws += 1;
+        (self.value >> 32) as u32
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.draws += 1;
+        self.value
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.draws += 1;
+        for (i, byte) in dest.iter_mut().enumerate() {
+            *byte = self.value.to_le_bytes()[i % 8];
+        }
+    }
+}
+
+#[test]
+fn loaded_bundle_sampling_uses_caller_rng_across_two_candidates() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    fixture(dir.path(), false, "")?;
+    let path = dir.path().join("weights.safetensors");
+    let mut tensors = candle_core::safetensors::load(&path, &Device::Cpu)?;
+    let mut values = vec![-4.0f32; 16];
+    for winner in [1, 3] {
+        for index in 0..4 {
+            values[winner * 4 + index] = 0.0;
+        }
+    }
+    tensors.insert(
+        "lm_head.weight".into(),
+        Tensor::from_vec(values, (4, 4), &Device::Cpu)?,
+    );
+    candle_core::safetensors::save(&tensors, path)?;
+    let engine = engine_from(dir.path())?;
+    let options = GenerateOptions {
+        max_new_tokens: 1,
+        temperature: 1.0,
+        top_p: 0.9,
+    };
+    let mut low = CountingRng {
+        draws: 0,
+        value: u64::MAX / 4,
+    };
+    let mut high = CountingRng {
+        draws: 0,
+        value: (u64::MAX / 4) * 3,
+    };
+    let first = engine.generate_with_rng("hello", options, &mut low)?;
+    let second = engine.generate_with_rng("hello", options, &mut high)?;
+    assert_eq!(first, "hello hello");
+    assert_eq!(second, "hello world");
+    assert_eq!((low.draws, high.draws), (1, 1));
+    Ok(())
+}
+
+#[test]
+fn loaded_bundles_generate_with_seed_and_honor_eos_and_limit() -> Result<()> {
+    let eos_dir = tempfile::tempdir()?;
+    let word_dir = tempfile::tempdir()?;
+    fixture(eos_dir.path(), false, "")?;
+    fixture(word_dir.path(), false, "")?;
+    set_winner(eos_dir.path(), 2)?;
+    set_winner(word_dir.path(), 3)?;
+    let eos = engine_from(eos_dir.path())?;
+    let word = engine_from(word_dir.path())?;
+    let options = GenerateOptions {
+        max_new_tokens: 2,
+        temperature: 1.0,
+        top_p: 0.5,
+    };
+    let mut rng1 = StdRng::seed_from_u64(42);
+    let mut rng2 = StdRng::seed_from_u64(42);
+    let mut rng3 = StdRng::seed_from_u64(42);
+    let eos_output = eos.generate_with_rng("hello", options, &mut rng1)?;
+    let word_output = word.generate_with_rng("hello", options, &mut rng2)?;
+    assert_eq!(
+        word_output,
+        word.generate_with_rng("hello", options, &mut rng3)?
+    );
+    assert_eq!(eos_output, "hello");
+    assert_eq!(word_output, "hello world world");
+    let one = word.generate_with_rng(
+        "hello",
+        GenerateOptions {
+            max_new_tokens: 1,
+            ..options
+        },
+        &mut StdRng::seed_from_u64(42),
+    )?;
+    assert_eq!(one, "hello world");
+    let mut eos_count = CountingRng::default();
+    eos.generate_with_rng("hello", options, &mut eos_count)?;
+    assert_eq!(eos_count.draws, 1);
+    let mut word_count = CountingRng::default();
+    word.generate_with_rng("hello", options, &mut word_count)?;
+    assert_eq!(word_count.draws, 2);
+    let mut zero_count = CountingRng::default();
+    let zero = word.generate_with_rng(
+        "hello",
+        GenerateOptions {
+            max_new_tokens: 0,
+            ..options
+        },
+        &mut zero_count,
+    )?;
+    assert_eq!(zero, "hello");
+    assert_eq!(zero_count.draws, 0);
+    assert!(word.generate_verified("hello", options).is_err());
     Ok(())
 }
 
