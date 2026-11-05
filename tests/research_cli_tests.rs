@@ -210,3 +210,179 @@ fn research_requires_explicit_bundle_and_normal_mode_stays_disabled() -> Result<
     assert!(missing.stdout.is_empty());
     Ok(())
 }
+
+#[test]
+fn cli_rejects_tokenizer_truncation_padding_and_dropout() -> Result<()> {
+    use tokenizers::{
+        pre_tokenizers::whitespace::Whitespace, PaddingParams, PaddingStrategy, Tokenizer,
+        TruncationParams,
+    };
+    for padding in [false, true] {
+        let dir = tempfile::tempdir()?;
+        fixture(dir.path(), false, "")?;
+        let path = dir.path().join("tokenizer.json");
+        let mut tokenizer = Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+        tokenizer.with_pre_tokenizer(Some(Whitespace));
+        if padding {
+            tokenizer.with_padding(Some(PaddingParams {
+                strategy: PaddingStrategy::Fixed(3),
+                ..Default::default()
+            }));
+        } else {
+            tokenizer
+                .with_truncation(Some(TruncationParams {
+                    max_length: 1,
+                    ..Default::default()
+                }))
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+        let ids = tokenizer
+            .encode("hello world", true)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert_eq!(
+            ids.get_ids(),
+            if padding { &[1, 3, 0][..] } else { &[1][..] }
+        );
+        tokenizer
+            .save(&path, false)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let out = run(
+            dir.path(),
+            &["--prompt-stdin", "--max-new-tokens", "0"],
+            b"hello world",
+        )?;
+        assert!(!out.status.success());
+        assert!(out.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&out.stderr).contains("failed to load research bundle"));
+    }
+    for (dropout, reject) in [(0.5, true), (0.0, false)] {
+        let dir = tempfile::tempdir()?;
+        fixture(dir.path(), false, "")?;
+        let path = dir.path().join("tokenizer.json");
+        let mut tokenizer: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+        tokenizer["model"] = serde_json::json!({"type":"BPE", "dropout":dropout,
+            "unk_token":"<unk>", "continuing_subword_prefix":null, "end_of_word_suffix":null,
+            "fuse_unk":false, "byte_fallback":false, "ignore_merges":false,
+            "vocab":{"<unk>":0,"a":1,"<eos>":2,"aa":3}, "merges":[["a","a"]]});
+        std::fs::write(&path, serde_json::to_vec(&tokenizer)?)?;
+        Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let out = run(
+            dir.path(),
+            &["--prompt-stdin", "--max-new-tokens", "0"],
+            b"a",
+        )?;
+        assert_eq!(out.status.success(), !reject);
+        if reject {
+            assert!(out.stdout.is_empty());
+        } else {
+            assert_eq!(serde_json::from_slice::<Value>(&out.stdout)?["text"], "a");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn cli_rejects_eos_out_of_vocab_and_over_context_prompt() -> Result<()> {
+    use tokenizers::{
+        pre_tokenizers::whitespace::Whitespace, processors::template::TemplateProcessing, Tokenizer,
+    };
+    for mode in ["eos_post", "eos_input", "out_of_vocab", "over_context"] {
+        let dir = tempfile::tempdir()?;
+        fixture(dir.path(), false, "")?;
+        let path = dir.path().join("tokenizer.json");
+        let mut tokenizer = Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+        if mode == "over_context" {
+            tokenizer.with_pre_tokenizer(Some(Whitespace));
+        }
+        if mode == "eos_post" || mode == "out_of_vocab" {
+            let (template, token, id) = if mode == "eos_post" {
+                ("$A <eos>", "<eos>", 2)
+            } else {
+                ("world $A", "world", 99)
+            };
+            let processor = TemplateProcessing::builder()
+                .try_single(template)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .special_tokens(vec![(token, id)])
+                .build()
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            tokenizer.with_post_processor(Some(processor));
+        }
+        tokenizer
+            .save(&path, false)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let prompt = match mode {
+            "eos_input" => "<eos>".to_string(),
+            "over_context" => vec!["hello"; 17].join(" "),
+            _ => "hello".to_string(),
+        };
+        for limit in ["0", "1"] {
+            let out = run(
+                dir.path(),
+                &["--prompt-stdin", "--max-new-tokens", limit],
+                prompt.as_bytes(),
+            )?;
+            assert!(!out.status.success(), "{mode}, max={limit}");
+            assert!(out.stdout.is_empty(), "{mode}, max={limit}");
+            assert!(
+                String::from_utf8_lossy(&out.stderr).contains("research generation failed"),
+                "{mode}, max={limit}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn cli_accepts_bos_and_still_generates_seeded_output() -> Result<()> {
+    use tokenizers::{processors::template::TemplateProcessing, AddedToken, Tokenizer};
+    let dir = tempfile::tempdir()?;
+    fixture(dir.path(), false, "")?;
+    set_winner(dir.path(), 1)?;
+    let path = dir.path().join("tokenizer.json");
+    let mut tokenizer = Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    tokenizer
+        .add_special_tokens([AddedToken::from("world", true)])
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let processor = TemplateProcessing::builder()
+        .try_single("world $A")
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .special_tokens(vec![("world", 3)])
+        .build()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    tokenizer.with_post_processor(Some(processor));
+    tokenizer
+        .save(&path, false)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    assert_eq!(
+        tokenizer
+            .encode("hello", true)
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .get_ids(),
+        &[3, 1]
+    );
+    let out = run(
+        dir.path(),
+        &[
+            "--prompt-stdin",
+            "--max-new-tokens",
+            "1",
+            "--seed",
+            "42",
+            "--temperature",
+            "1",
+            "--top-p",
+            "0.5",
+        ],
+        b"hello",
+    )?;
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let output: Value = serde_json::from_slice(&out.stdout)?;
+    assert_eq!(output["text"], "hello hello");
+    assert_eq!(output["clinical_use"], false);
+    Ok(())
+}
