@@ -81,6 +81,9 @@ cargo test --offline --locked --no-default-features
 
 CPU test results do not establish CUDA builds, GPU execution, tokenizer file
 compatibility, or end-to-end model generation.
+Grouped-query attention assigns consecutive query heads to each KV head; a
+synthetic CPU regression checks this ordering. This does not establish
+compatibility with any particular checkpoint.
 
 ```bash
 # CPU

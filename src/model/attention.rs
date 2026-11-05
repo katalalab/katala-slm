@@ -69,9 +69,12 @@ impl GqaAttention {
             return Ok(x);
         }
         let repeats = self.num_attention_heads / self.num_key_value_heads;
-        let mut chunks = Vec::with_capacity(repeats);
-        for _ in 0..repeats {
-            chunks.push(x.clone());
+        let mut chunks = Vec::with_capacity(self.num_attention_heads);
+        for head in 0..self.num_key_value_heads {
+            let kv_head = x.narrow(1, head, 1)?;
+            for _ in 0..repeats {
+                chunks.push(kv_head.clone());
+            }
         }
         Tensor::cat(&chunks.iter().collect::<Vec<_>>(), 1)
     }
@@ -109,5 +112,31 @@ impl GqaAttention {
         let attn = ops::softmax_last_dim(&attn_scores)?;
         let ctx = attn.matmul(&v)?.transpose(1, 2)?.reshape((b, s, ()))?;
         self.o_proj.forward(&ctx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use candle_nn::VarMap;
+
+    #[test]
+    fn grouped_query_heads_share_their_assigned_kv_head() -> Result<()> {
+        let device = Device::Cpu;
+        let vars = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+        let attention = GqaAttention::new(8, 4, 2, 10_000.0, vb, &device)?;
+        // Shape is (batch, kv_heads, sequence, head_dim), as in forward().
+        let kv = Tensor::from_vec(
+            vec![1f32, 2., 3., 4., 10., 20., 30., 40.],
+            (1, 2, 2, 2),
+            &device,
+        )?;
+        let actual = attention.repeat_kv(kv)?.flatten_all()?.to_vec1::<f32>()?;
+        assert_eq!(
+            actual,
+            vec![1., 2., 3., 4., 1., 2., 3., 4., 10., 20., 30., 40., 10., 20., 30., 40.]
+        );
+        Ok(())
     }
 }
