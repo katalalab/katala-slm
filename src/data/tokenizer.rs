@@ -8,6 +8,32 @@ pub struct TokenizerWrapper {
 }
 
 impl TokenizerWrapper {
+    pub(crate) fn from_research_bytes(
+        bytes: &[u8],
+        eos_token_id: u32,
+        vocab_size: usize,
+    ) -> Result<Self> {
+        let tokenizer = Tokenizer::from_bytes(bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let vocab = tokenizer.get_vocab(true);
+        let mut ids: Vec<u32> = vocab.values().copied().collect();
+        ids.sort_unstable();
+        anyhow::ensure!(
+            ids.len() == vocab_size && ids.iter().enumerate().all(|(i, id)| *id as usize == i),
+            "tokenizer vocabulary IDs do not match config"
+        );
+        anyhow::ensure!(
+            tokenizer
+                .get_added_tokens_decoder()
+                .get(&eos_token_id)
+                .is_some_and(|token| token.special),
+            "EOS must exist and be a special token"
+        );
+        Ok(Self {
+            tokenizer,
+            eos_token_id,
+        })
+    }
+
     pub fn from_file(path: &str, eos_token_id: u32) -> Result<Self> {
         let tokenizer = Tokenizer::from_file(path).map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(Self {

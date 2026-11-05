@@ -95,12 +95,12 @@ cargo build --release --features cuda
 
 ## Usage
 
-Model checkpoint loading is not implemented. As a temporary safeguard, supplying
+CLI checkpoint loading is not implemented. As a temporary safeguard, supplying
 both `infer` (with or without `--model`) and `serve` return an error before model
 initialization, rather than silently ignoring a
 requested checkpoint or reporting an answer from untrained weights as inference.
-A future loader needs a defined checkpoint, model configuration, tokenizer and EOS
-contract, plus an end-to-end test showing that loaded weights affect generation.
+A future CLI path needs a fully validated generation contract and an end-to-end
+test showing that loaded weights affect generated tokens.
 The lower-level `run_server` API can still be called explicitly with an untrained
 engine. Its `/health` and `/v1/medical/generate` endpoints return HTTP 503 while
 model loading is unavailable. The library server has no authentication; callers
@@ -108,6 +108,42 @@ choose the listening address.
 The lower-level `InferenceEngine::generate` remains available for experiments with
 untrained weights; `generate_verified` returns an error. None of these paths provides
 pretrained medical inference or clinical use.
+
+### Experimental local bundle loader
+
+The library provides `ResearchBundle::load` as a CPU-only research foundation.
+It does not enable the CLI, verified answers, or the server. A versioned local
+bundle directory contains `config.json`, `tokenizer.json`, and
+`weights.safetensors`. The JSON config has exactly `format` set to
+`katala-slm-research-v1`, `eos_token_id`, and a `model` object with precisely the
+fields of `ModelConfig`. The tokenizer is a Hugging Face tokenizers JSON; its IDs
+must be contiguous from zero, match `vocab_size`, and include EOS as a special
+token. The checkpoint contains only the exact F32 names and shapes used by this
+project's transformer, including its grouped-query head order and split-half
+RoPE. No compatibility with Hugging Face or other model families is implied.
+
+The loader limits each JSON file to 1 MiB and the weights file to 256 MiB;
+dimensions, total F32 parameter count, head grouping, context, and numeric
+configuration are checked before model construction. It inspects safetensors
+metadata before allocating tensors and rejects missing, extra, wrongly shaped,
+non-F32, and non-finite weights. This format deliberately excludes larger models.
+Context is at most 2,048 tokens, and `batch × attention_heads × sequence²`
+must not exceed 4,194,304 elements; the configured maximum must satisfy that
+limit for batch one. These bounds limit one attention tensor, not total memory
+or execution time. Rotary frequencies and epsilon must remain finite and
+positive under the implementation's F32 arithmetic.
+The attention budget and context check also apply to the existing lower-level
+`TransformerModel::new` API, so inputs formerly accepted may now be rejected.
+The forward pass uses the configuration captured at construction for these
+checks, even if a caller later edits its public `config` field. Finite weights
+alone do not guarantee that later F32 computations remain finite.
+These are per-file/parameter limits, not a process memory bound: parsing and
+tensor copies require additional memory. Each file is read into a bounded snapshot,
+but separate files are not read atomically; a concurrently modified bundle or
+symlink can mix generations. Use a locally controlled, stable bundle directory.
+The loader does not establish provenance, training quality, medical safety, or
+correct tokenization for an external model. Experimental logits do not constitute
+validated inference.
 
 ```bash
 # Reports an error until checkpoint loading is implemented

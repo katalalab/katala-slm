@@ -1,4 +1,5 @@
 pub mod attention;
+pub mod bundle;
 pub mod config;
 pub mod embedding;
 pub mod mlp;
