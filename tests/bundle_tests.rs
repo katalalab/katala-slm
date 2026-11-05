@@ -36,6 +36,235 @@ fn engine_from(dir: &Path) -> Result<InferenceEngine> {
     })
 }
 
+#[test]
+fn research_bundle_rejects_tokenizer_truncation_and_padding() -> Result<()> {
+    use tokenizers::{
+        pre_tokenizers::whitespace::Whitespace, PaddingParams, PaddingStrategy, Tokenizer,
+        TruncationParams,
+    };
+    for padding in [false, true] {
+        let dir = tempfile::tempdir()?;
+        fixture(dir.path(), false, "")?;
+        let path = dir.path().join("tokenizer.json");
+        let mut tokenizer = Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+        tokenizer.with_pre_tokenizer(Some(Whitespace));
+        if padding {
+            tokenizer.with_padding(Some(PaddingParams {
+                strategy: PaddingStrategy::Fixed(3),
+                ..Default::default()
+            }));
+        } else {
+            tokenizer
+                .with_truncation(Some(TruncationParams {
+                    max_length: 1,
+                    ..Default::default()
+                }))
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+        let ids = tokenizer
+            .encode("hello world", true)
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .get_ids()
+            .to_vec();
+        assert_eq!(ids, if padding { vec![1, 3, 0] } else { vec![1] });
+        tokenizer
+            .save(&path, false)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert!(
+            ResearchBundle::load(dir.path()).is_err(),
+            "padding={padding}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn bos_postprocessor_is_preserved_without_eos() -> Result<()> {
+    use tokenizers::{processors::template::TemplateProcessing, AddedToken, Tokenizer};
+    let dir = tempfile::tempdir()?;
+    fixture(dir.path(), false, "")?;
+    let path = dir.path().join("tokenizer.json");
+    let mut tokenizer = Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    tokenizer
+        .add_special_tokens([AddedToken::from("world", true)])
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let processor = TemplateProcessing::builder()
+        .try_single("world $A")
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .special_tokens(vec![("world", 3)])
+        .build()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    tokenizer.with_post_processor(Some(processor));
+    tokenizer
+        .save(&path, false)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let engine = engine_from(dir.path())?;
+    assert_eq!(engine.tokenizer.encode("hello")?, vec![3, 1]);
+    assert_eq!(
+        engine.generate(
+            "hello",
+            GenerateOptions {
+                max_new_tokens: 0,
+                ..Default::default()
+            }
+        )?,
+        "hello"
+    );
+    Ok(())
+}
+
+#[test]
+fn postprocessor_out_of_vocabulary_ids_are_rejected_even_without_generation() -> Result<()> {
+    use tokenizers::{processors::template::TemplateProcessing, Tokenizer};
+    let dir = tempfile::tempdir()?;
+    fixture(dir.path(), false, "")?;
+    let path = dir.path().join("tokenizer.json");
+    let mut tokenizer = Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let processor = TemplateProcessing::builder()
+        .try_single("world $A")
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .special_tokens(vec![("world", 99)])
+        .build()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    tokenizer.with_post_processor(Some(processor));
+    tokenizer
+        .save(&path, false)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let mut bundle = ResearchBundle::load(dir.path())?;
+    bundle.model.config.vocab_size = 100;
+    let engine = InferenceEngine {
+        model: Arc::new(bundle.model),
+        tokenizer: Arc::new(bundle.tokenizer),
+        verifier: Arc::new(Verifier::default()),
+    };
+    for max_new_tokens in [0, 1] {
+        assert!(engine
+            .generate(
+                "hello",
+                GenerateOptions {
+                    max_new_tokens,
+                    ..Default::default()
+                }
+            )
+            .is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn generation_checks_prompt_length_before_zero_or_one_token() -> Result<()> {
+    use tokenizers::{pre_tokenizers::whitespace::Whitespace, Tokenizer};
+    let dir = tempfile::tempdir()?;
+    fixture(dir.path(), false, "")?;
+    let path = dir.path().join("tokenizer.json");
+    let mut tokenizer = Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    tokenizer.with_pre_tokenizer(Some(Whitespace));
+    tokenizer
+        .save(&path, false)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let mut bundle = ResearchBundle::load(dir.path())?;
+    bundle.model.config.max_position_embeddings = 999;
+    let engine = InferenceEngine {
+        model: Arc::new(bundle.model),
+        tokenizer: Arc::new(bundle.tokenizer),
+        verifier: Arc::new(Verifier::default()),
+    };
+    let prompt = vec!["hello"; 17].join(" ");
+    let valid_prompt = vec!["hello"; 16].join(" ");
+    assert!(engine
+        .generate(
+            &valid_prompt,
+            GenerateOptions {
+                max_new_tokens: 0,
+                ..Default::default()
+            }
+        )
+        .is_ok());
+    for max_new_tokens in [0, 1] {
+        assert!(engine
+            .generate(
+                &prompt,
+                GenerateOptions {
+                    max_new_tokens,
+                    ..Default::default()
+                }
+            )
+            .is_err());
+    }
+    Ok(())
+}
+
+#[test]
+fn generation_rejects_eos_inserted_by_postprocessor_and_empty_prompt() -> Result<()> {
+    use tokenizers::{processors::template::TemplateProcessing, Tokenizer};
+    let dir = tempfile::tempdir()?;
+    fixture(dir.path(), false, "")?;
+    let path = dir.path().join("tokenizer.json");
+    let mut tokenizer = Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let processor = TemplateProcessing::builder()
+        .try_single("$A <eos>")
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .special_tokens(vec![("<eos>", 2)])
+        .build()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    tokenizer.with_post_processor(Some(processor));
+    tokenizer
+        .save(&path, false)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let engine = engine_from(dir.path())?;
+    for max_new_tokens in [0, 1] {
+        let options = GenerateOptions {
+            max_new_tokens,
+            ..Default::default()
+        };
+        assert!(engine.generate("hello", options).is_err());
+    }
+    let empty_dir = tempfile::tempdir()?;
+    fixture(empty_dir.path(), false, "")?;
+    let empty_engine = engine_from(empty_dir.path())?;
+    assert!(empty_engine
+        .generate(
+            "",
+            GenerateOptions {
+                max_new_tokens: 0,
+                ..Default::default()
+            }
+        )
+        .is_err());
+    assert!(empty_engine
+        .generate(
+            "<eos>",
+            GenerateOptions {
+                max_new_tokens: 0,
+                ..Default::default()
+            }
+        )
+        .is_err());
+    Ok(())
+}
+
+#[test]
+fn research_bpe_rejects_stochastic_dropout_but_accepts_zero() -> Result<()> {
+    for (dropout, reject) in [(0.5, true), (0.0, false)] {
+        let dir = tempfile::tempdir()?;
+        fixture(dir.path(), false, "")?;
+        let path = dir.path().join("tokenizer.json");
+        let mut tokenizer: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        tokenizer["model"] = serde_json::json!({"type":"BPE", "dropout":dropout,
+            "unk_token":"<unk>", "continuing_subword_prefix":null, "end_of_word_suffix":null,
+            "fuse_unk":false, "byte_fallback":false, "ignore_merges":false,
+            "vocab":{"<unk>":0,"a":1,"<eos>":2,"aa":3}, "merges":[["a","a"]]});
+        fs::write(&path, serde_json::to_vec(&tokenizer)?)?;
+        tokenizers::Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert_eq!(
+            ResearchBundle::load(dir.path()).is_err(),
+            reject,
+            "dropout={dropout}"
+        );
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 struct CountingRng {
     draws: usize,

@@ -73,8 +73,17 @@ pub struct TransformerModel {
 }
 
 impl TransformerModel {
-    pub(crate) fn context_limit(&self) -> usize {
-        self.runtime_config.max_position_embeddings
+    pub(crate) fn validate_prompt(&self, ids: &[u32]) -> Result<()> {
+        if ids.is_empty() || ids.len() > self.runtime_config.max_position_embeddings {
+            candle_core::bail!("prompt length outside configured context limit");
+        }
+        if ids
+            .iter()
+            .any(|id| *id as usize >= self.runtime_config.vocab_size)
+        {
+            candle_core::bail!("prompt token outside configured vocabulary");
+        }
+        Ok(())
     }
 
     pub fn new(config: ModelConfig, force_cpu: bool) -> Result<Self> {

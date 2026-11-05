@@ -119,6 +119,16 @@ must be contiguous from zero, match `vocab_size`, and include EOS as a special
 token. The checkpoint contains only the exact F32 names and shapes used by this
 project's transformer, including its grouped-query head order and split-half
 RoPE. No compatibility with Hugging Face or other model families is implied.
+Research tokenizers with automatic truncation, padding, or nonzero BPE dropout
+are rejected at load; BPE dropout unset or zero is allowed.
+Other post-processors may add tokens such as BOS, but generation rejects an
+empty encoded prompt or any encoded prompt containing EOS, including EOS
+inserted by a post-processor or written in the input. Tokenizer normalizers and
+post-processors can otherwise transform input; callers must understand their
+bundle's tokenizer. The encoded-prompt checks apply to all `InferenceEngine`
+instances, including the lower-level untrained engine, even when
+`max_new_tokens` is zero. Encoded IDs must fit the model vocabulary and context
+limit captured at model construction.
 
 The loader limits each JSON file to 1 MiB and the weights file to 256 MiB;
 dimensions, total F32 parameter count, head grouping, context, and numeric
@@ -151,7 +161,8 @@ and `top_p` must be finite and in `(0, 1]`; invalid settings and empty or non-fi
 logits return errors instead of being clamped. `sample` uses a thread-local random
 generator. For reproducible experiments, pass a seeded RNG to `sample_with_rng` or
 `generate_with_rng`, keeping the same RNG across steps. Reproducibility requires the
-same RNG algorithm, dependency versions and numerical environment; it is not a
+same RNG algorithm, deterministic tokenization, dependency versions and numerical
+environment; the sampler RNG does not control tokenizer randomness, and it is not a
 cross-platform or cross-version guarantee. The server and verified generation
 remain disabled.
 

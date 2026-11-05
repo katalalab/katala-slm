@@ -14,6 +14,20 @@ impl TokenizerWrapper {
         vocab_size: usize,
     ) -> Result<Self> {
         let tokenizer = Tokenizer::from_bytes(bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
+        anyhow::ensure!(
+            tokenizer.get_truncation().is_none(),
+            "research tokenizer must not truncate input"
+        );
+        anyhow::ensure!(
+            tokenizer.get_padding().is_none(),
+            "research tokenizer must not pad input"
+        );
+        if let tokenizers::models::ModelWrapper::BPE(bpe) = tokenizer.get_model() {
+            anyhow::ensure!(
+                bpe.dropout.is_none_or(|p| p == 0.0),
+                "research tokenizer must not use BPE dropout"
+            );
+        }
         let vocab = tokenizer.get_vocab(true);
         let mut ids: Vec<u32> = vocab.values().copied().collect();
         ids.sort_unstable();
