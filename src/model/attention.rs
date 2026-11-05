@@ -139,4 +139,38 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn repeat_kv_handles_batched_transposed_inputs_and_repeat_counts() -> Result<()> {
+        let device = Device::Cpu;
+        let vars = VarMap::new();
+        let vb = VarBuilder::from_varmap(&vars, DType::F32, &device);
+        // forward() transposes (batch, sequence, kv_heads, head_dim) this way.
+        let kv = Tensor::from_vec(
+            (1..=16).map(|v| v as f32).collect::<Vec<_>>(),
+            (2, 2, 2, 2),
+            &device,
+        )?
+        .transpose(1, 2)?;
+        let attention = GqaAttention::new(12, 6, 2, 10_000.0, vb.pp("grouped"), &device)?;
+        let expanded = attention.repeat_kv(kv.clone())?;
+        assert_eq!(expanded.dims(), &[2, 6, 2, 2]);
+        assert_eq!(
+            expanded.flatten_all()?.to_vec1::<f32>()?,
+            vec![
+                1., 2., 5., 6., 1., 2., 5., 6., 1., 2., 5., 6., 3., 4., 7., 8., 3., 4., 7., 8., 3.,
+                4., 7., 8., 9., 10., 13., 14., 9., 10., 13., 14., 9., 10., 13., 14., 11., 12., 15.,
+                16., 11., 12., 15., 16., 11., 12., 15., 16.,
+            ]
+        );
+        let equal_heads = GqaAttention::new(4, 2, 2, 10_000.0, vb.pp("equal"), &device)?;
+        assert_eq!(
+            equal_heads
+                .repeat_kv(kv.clone())?
+                .flatten_all()?
+                .to_vec1::<f32>()?,
+            kv.flatten_all()?.to_vec1::<f32>()?
+        );
+        Ok(())
+    }
 }
