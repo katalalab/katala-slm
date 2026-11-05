@@ -1261,6 +1261,7 @@ dependencies = [
  "clap",
  "cudarc 0.19.10",
  "half",
+ "rand",
  "rayon",
  "serde",
  "serde_json",
