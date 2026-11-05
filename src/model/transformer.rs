@@ -73,6 +73,10 @@ pub struct TransformerModel {
 }
 
 impl TransformerModel {
+    pub(crate) fn context_limit(&self) -> usize {
+        self.runtime_config.max_position_embeddings
+    }
+
     pub fn new(config: ModelConfig, force_cpu: bool) -> Result<Self> {
         let device = if force_cpu {
             Device::Cpu

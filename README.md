@@ -172,6 +172,8 @@ stream reproducible only with the same algorithm, dependencies, and numerical
 environment. A prompt may be passed by `--prompt` or `--prompt-stdin`, not both;
 it must be nonempty UTF-8, at most 65,536 bytes, and fit the model context.
 Generation may fail if it exceeds the model's context or attention budget.
+The low-level generation API now rejects an empty or over-context encoded prompt
+even when `max_new_tokens` is zero; prompt encoding occurs once per generation.
 
 Prefer stdin for sensitive input: command-line arguments can appear in process
 lists or shell history. The response itself includes the prompt. The CLI does not

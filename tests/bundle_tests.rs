@@ -250,3 +250,24 @@ fn loaded_model_rejects_empty_and_overlength_inputs() -> Result<()> {
     assert!(bundle.model.forward(&long).is_err());
     Ok(())
 }
+
+#[test]
+fn generation_checks_prompt_context_even_when_zero_tokens_requested() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    fixture(dir.path(), false, "")?;
+    let path = dir.path().join("tokenizer.json");
+    let mut tokenizer: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+    tokenizer["pre_tokenizer"] = serde_json::json!({"type":"Whitespace"});
+    fs::write(&path, serde_json::to_vec(&tokenizer)?)?;
+    let engine = engine_from(dir.path())?;
+    let prompt = "hello ".repeat(17);
+    let options = GenerateOptions {
+        max_new_tokens: 0,
+        temperature: 1.0,
+        top_p: 1.0,
+    };
+    assert!(engine
+        .generate_with_rng(&prompt, options, &mut StdRng::seed_from_u64(1))
+        .is_err());
+    Ok(())
+}

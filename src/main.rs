@@ -127,14 +127,6 @@ async fn main() -> Result<()> {
             // Research bundles always load on CPU, regardless of the optional --cpu flag.
             let bundle = ResearchBundle::load(&model)
                 .map_err(|_| anyhow::anyhow!("failed to load research bundle"))?;
-            let ids = bundle
-                .tokenizer
-                .encode(&prompt)
-                .map_err(|_| anyhow::anyhow!("prompt tokenization failed"))?;
-            ensure!(
-                !ids.is_empty() && ids.len() <= bundle.model.config.max_position_embeddings,
-                "prompt token count exceeds model context or is empty"
-            );
             let engine = InferenceEngine {
                 model: Arc::new(bundle.model),
                 tokenizer: Arc::new(bundle.tokenizer),

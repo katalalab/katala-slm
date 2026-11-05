@@ -61,6 +61,10 @@ impl InferenceEngine {
         let sampler = Sampler::new(options.temperature, options.top_p);
         sampler.validate()?;
         let mut token_ids = self.tokenizer.encode(prompt)?;
+        anyhow::ensure!(
+            !token_ids.is_empty() && token_ids.len() <= self.model.context_limit(),
+            "prompt token count exceeds model context or is empty"
+        );
 
         for _ in 0..options.max_new_tokens {
             let input =
