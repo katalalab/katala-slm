@@ -109,6 +109,17 @@ The lower-level `InferenceEngine::generate` remains available for experiments wi
 untrained weights; `generate_verified` returns an error. None of these paths provides
 pretrained medical inference or clinical use.
 
+The experimental sampler uses temperature-scaled softmax and samples from the
+smallest probability-sorted prefix whose cumulative probability reaches `top_p`;
+ties are ordered by token ID. `temperature` must be finite and greater than zero,
+and `top_p` must be finite and in `(0, 1]`; invalid settings and empty or non-finite
+logits return errors instead of being clamped. `sample` uses a thread-local random
+generator. For reproducible experiments, pass a seeded RNG to `sample_with_rng` or
+`generate_with_rng`, keeping the same RNG across steps. Reproducibility requires the
+same RNG algorithm, dependency versions and numerical environment; it is not a
+cross-platform or cross-version guarantee. These low-level APIs do not enable the
+disabled CLI or server.
+
 ```bash
 # Reports an error until checkpoint loading is implemented
 cargo run --release -- infer --prompt "Influenza treatment options?"
