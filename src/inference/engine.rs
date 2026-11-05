@@ -61,6 +61,11 @@ impl InferenceEngine {
         let sampler = Sampler::new(options.temperature, options.top_p);
         sampler.validate()?;
         let mut token_ids = self.tokenizer.encode(prompt)?;
+        self.model.validate_prompt(&token_ids)?;
+        anyhow::ensure!(
+            !token_ids.contains(&self.tokenizer.eos_token_id()),
+            "prompt contains EOS token"
+        );
 
         for _ in 0..options.max_new_tokens {
             let input =
