@@ -95,12 +95,10 @@ cargo build --release --features cuda
 
 ## Usage
 
-CLI checkpoint loading is not implemented. As a temporary safeguard, supplying
-both `infer` (with or without `--model`) and `serve` return an error before model
-initialization, rather than silently ignoring a
-requested checkpoint or reporting an answer from untrained weights as inference.
-A future CLI path needs a fully validated generation contract beyond the current
-synthetic CPU tests, which confirm that loaded weights can change generated tokens.
+The CLI permits inference only with an explicit `--research` flag and a valid
+local `--model` bundle directory. It always uses CPU. Ordinary `infer`, a
+missing bundle, and `serve` fail before model initialization. Research output
+is unverified and is not suitable for clinical use.
 The lower-level `run_server` API can still be called explicitly with an untrained
 engine. Its `/health` and `/v1/medical/generate` endpoints return HTTP 503 while
 model loading is unavailable. The library server has no authentication; callers
@@ -112,7 +110,7 @@ pretrained medical inference or clinical use.
 ### Experimental local bundle loader
 
 The library provides `ResearchBundle::load` as a CPU-only research foundation.
-It does not enable the CLI, verified answers, or the server. A versioned local
+It does not enable verified answers or the server. A versioned local
 bundle directory contains `config.json`, `tokenizer.json`, and
 `weights.safetensors`. The JSON config has exactly `format` set to
 `katala-slm-research-v1`, `eos_token_id`, and a `model` object with precisely the
@@ -154,11 +152,33 @@ logits return errors instead of being clamped. `sample` uses a thread-local rand
 generator. For reproducible experiments, pass a seeded RNG to `sample_with_rng` or
 `generate_with_rng`, keeping the same RNG across steps. Reproducibility requires the
 same RNG algorithm, dependency versions and numerical environment; it is not a
-cross-platform or cross-version guarantee. These low-level APIs do not enable the
-disabled CLI or server.
+cross-platform or cross-version guarantee. The server and verified generation
+remain disabled.
+
+### Research CLI
 
 ```bash
-# Reports an error until checkpoint loading is implemented
+printf '%s' 'hello' | katala-slm --cpu infer --research --model ./local-bundle \
+  --prompt-stdin --seed 42 --max-new-tokens 2
+```
+
+The JSON response has `mode: "research_unverified"`, `clinical_use: false`,
+`includes_prompt: true`, and `text`. Text is decoded from the complete token
+sequence, including the prompt; tokenization can normalize it. No evidence,
+confidence, or verified medical answer is claimed. `--max-new-tokens` accepts
+0–128; zero returns the decoded prompt. Temperature must be finite and positive,
+and top-p finite in `(0, 1]`. The optional unsigned `--seed` makes the random
+stream reproducible only with the same algorithm, dependencies, and numerical
+environment. A prompt may be passed by `--prompt` or `--prompt-stdin`, not both;
+it must be nonempty UTF-8, at most 65,536 bytes, and fit the model context.
+Generation may fail if it exceeds the model's context or attention budget.
+
+Prefer stdin for sensitive input: command-line arguments can appear in process
+lists or shell history. The response itself includes the prompt. The CLI does not
+automatically save input or output; shell redirection is an explicit user action.
+
+```bash
+# Reports an error without the explicit research flag and bundle
 cargo run --release -- infer --prompt "Influenza treatment options?"
 
 # Reports an error; the CLI does not start a server
