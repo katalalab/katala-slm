@@ -90,6 +90,20 @@ cargo build --release
 cargo build --release --features cuda
 ```
 
+### Inference benchmark
+
+```bash
+KATALA_BENCH_DEVICE=cpu cargo bench --locked --bench inference_bench
+KATALA_BENCH_DEVICE=cuda cargo bench --locked --features cuda --bench inference_bench
+```
+
+The default is `cpu`. CUDA mode requires both the Cargo feature and Candle
+CUDA device 0. It exits with an error if either is unavailable. The benchmark
+prints the actual Candle device, uses two warmups and five measured samples per
+workload, and synchronizes the device before reading each elapsed time. Compare
+runs with the same Cargo profile. The KS verification workload always runs on
+CPU.
+
 ## Usage
 ```bash
 # Inference CLI
