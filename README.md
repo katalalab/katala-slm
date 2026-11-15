@@ -60,17 +60,17 @@ The useful KS lineage here is axis separation and explicit review state. Histori
 ### Rust toolchain and CPU verification
 
 With the dependency versions in this lockfile, the declared compiler lower
-bound is at least Rust 1.88: Candle 0.11 requires `zip` 8.6.0, which declares
+bound is at least Rust 1.88: Candle 0.11.1 resolves to `zip` 9.5.1, which declares
 Rust 1.88. This is a dependency requirement, not a verified minimum supported
 Rust version (MSRV). Compatibility with Rust 1.88 has not been tested.
-See the [Candle dependency declaration](https://github.com/huggingface/candle/blob/0.11.0/candle-core/Cargo.toml)
-and [zip version metadata](https://crates.io/api/v1/crates/zip/8.6.0).
+See the [Candle dependency declaration](https://github.com/huggingface/candle/blob/0.11.1/candle-core/Cargo.toml)
+and [zip version metadata](https://crates.io/api/v1/crates/zip/9.5.1).
 
 The [Linux CPU CI](https://github.com/katalalab/katala-slm/actions/runs/38053305587)
 passed all 56 tests on main commit `1cc92d821f7daca2b4d9354eaef9ad330927a5a2`.
-This verifies the locked CPU dependencies, including the project's tokenizers
-0.23.2 and Candle's separate tokenizers 0.22.2 dependency. It does not establish
-the project MSRV or a compiler version below the dependency requirement.
+That historical run used tokenizers 0.23.2 together with Candle's separate
+0.22.2 dependency. The current lockfile resolves only tokenizers 0.23.2. Neither
+that run nor the dependency requirements establish the project MSRV.
 
 After the locked dependencies are available locally, run the CPU regression
 suite without downloading models or starting the API server:
