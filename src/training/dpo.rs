@@ -186,8 +186,7 @@ fn compute_axis_reward_delta(chosen: &VerifiedAnswer, rejected: &VerifiedAnswer)
     // Simple confidence-based delta for now
     // In production, this would use full axis score comparison
     let conf_delta = chosen.confidence - rejected.confidence;
-    let evidence_delta = evidence_level_to_numeric(chosen.evidence_level)
-        - evidence_level_to_numeric(rejected.evidence_level);
+    let evidence_delta = chosen.evidence_level.quality() - rejected.evidence_level.quality();
     let contraindication_penalty =
         if chosen.contraindications.len() > rejected.contraindications.len() {
             -0.1
@@ -198,15 +197,6 @@ fn compute_axis_reward_delta(chosen: &VerifiedAnswer, rejected: &VerifiedAnswer)
         };
 
     conf_delta + evidence_delta * 0.5 + contraindication_penalty
-}
-
-fn evidence_level_to_numeric(level: EvidenceLevel) -> f32 {
-    match level {
-        EvidenceLevel::A => 1.0,
-        EvidenceLevel::B => 0.7,
-        EvidenceLevel::C => 0.4,
-        EvidenceLevel::D => 0.1,
-    }
 }
 
 /// log(sigmoid(x))

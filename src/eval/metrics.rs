@@ -69,10 +69,7 @@ pub fn compute_medical_metrics(samples: &[EvalSample]) -> MedicalMetrics {
     let safety_score = safety_correct as f32 / n;
 
     // Evidence quality
-    let evidence_sum: f32 = samples
-        .iter()
-        .map(|s| evidence_to_numeric(s.evidence_level))
-        .sum();
+    let evidence_sum: f32 = samples.iter().map(|s| s.evidence_level.quality()).sum();
     let avg_evidence_quality = evidence_sum / n;
 
     // Evidence distribution
@@ -131,15 +128,6 @@ pub fn compute_medical_metrics(samples: &[EvalSample]) -> MedicalMetrics {
         completeness_score,
         uncertainty_calibration,
         hallucination_rate,
-    }
-}
-
-fn evidence_to_numeric(level: EvidenceLevel) -> f32 {
-    match level {
-        EvidenceLevel::A => 1.0,
-        EvidenceLevel::B => 0.7,
-        EvidenceLevel::C => 0.4,
-        EvidenceLevel::D => 0.1,
     }
 }
 
