@@ -67,8 +67,7 @@ impl ExpertRouter {
 
         // Compute gating logits
         let logits = self.gate.forward(&flat)?; // [num_tokens, num_experts]
-        let logits_vec: Vec<Vec<f32>> =
-            self.tensor_to_2d(&logits, num_tokens, self.config.num_experts)?;
+        let logits_vec: Vec<Vec<f32>> = self.tensor_to_2d(&logits, self.config.num_experts)?;
 
         // Add noise during training for exploration
         let logits_noisy = if training && self.config.noise_factor > 0.0 {
@@ -111,7 +110,7 @@ impl ExpertRouter {
         })
     }
 
-    fn tensor_to_2d(&self, t: &Tensor, _rows: usize, cols: usize) -> Result<Vec<Vec<f32>>> {
+    fn tensor_to_2d(&self, t: &Tensor, cols: usize) -> Result<Vec<Vec<f32>>> {
         let flat: Vec<f32> = t.to_dtype(DType::F32)?.flatten_all()?.to_vec1()?;
         Ok(flat.chunks(cols).map(|c| c.to_vec()).collect())
     }

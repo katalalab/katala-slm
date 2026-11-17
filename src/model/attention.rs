@@ -38,7 +38,7 @@ impl GqaAttention {
     }
 
     fn apply_rope(&self, x: Tensor, seq_len: usize) -> Result<Tensor> {
-        let (_b, h, _s, d) = x.dims4()?;
+        let (_b, _h, _s, d) = x.dims4()?;
         let half = d / 2;
         let positions = Tensor::arange(0u32, seq_len as u32, &self.device)?.to_dtype(DType::F32)?;
         let inv_freq: Vec<f32> = (0..half)
@@ -58,10 +58,7 @@ impl GqaAttention {
         let y2 = x1
             .broadcast_mul(&sin)?
             .broadcast_add(&x2.broadcast_mul(&cos)?)?;
-        Tensor::cat(&[&y1, &y2], 3).map(|t| {
-            t.reshape((x.dims1().unwrap_or_default(), h, seq_len, d))
-                .unwrap_or(t)
-        })
+        Tensor::cat(&[&y1, &y2], 3)
     }
 
     fn repeat_kv(&self, x: Tensor) -> Result<Tensor> {

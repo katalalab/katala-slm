@@ -98,7 +98,6 @@ impl MoMELayer {
             }
 
             // Scatter back
-            let _current = output_accum.narrow(0, token_idx, 1)?;
             output_accum =
                 output_accum.slice_assign(&[token_idx..token_idx + 1, 0..hidden], &token_output)?;
         }
