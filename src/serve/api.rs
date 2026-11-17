@@ -53,10 +53,11 @@ async fn generate_medical(
     State(state): State<ApiState>,
     Json(req): Json<GenerateRequest>,
 ) -> impl IntoResponse {
+    let defaults = GenerateOptions::default();
     let options = GenerateOptions {
-        max_new_tokens: req.max_new_tokens.unwrap_or(128),
-        temperature: req.temperature.unwrap_or(0.8),
-        top_p: req.top_p.unwrap_or(0.95),
+        max_new_tokens: req.max_new_tokens.unwrap_or(defaults.max_new_tokens),
+        temperature: req.temperature.unwrap_or(defaults.temperature),
+        top_p: req.top_p.unwrap_or(defaults.top_p),
     };
 
     let response: VerifiedAnswer = state
