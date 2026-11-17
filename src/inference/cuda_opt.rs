@@ -202,36 +202,19 @@ impl KvCacheQuantizer {
                 zero_point: None,
                 original_dtype: tensor.dtype(),
             }),
-            KvCacheQuantLevel::Int8 => self.quantize_int8(tensor),
-            KvCacheQuantLevel::Int4 => self.quantize_int4(tensor),
+            KvCacheQuantLevel::Int8 => Self::quantize_symmetric(tensor, 127.0),
+            KvCacheQuantLevel::Int4 => Self::quantize_symmetric(tensor, 7.0),
         }
     }
 
-    fn quantize_int8(&self, tensor: &Tensor) -> Result<QuantizedKvEntry> {
+    /// Per-row absmax quantization onto the integer grid `[-max_level, max_level]`.
+    fn quantize_symmetric(tensor: &Tensor, max_level: f32) -> Result<QuantizedKvEntry> {
         let float_tensor = tensor.to_dtype(DType::F32)?;
         let max_val = float_tensor.abs()?.max_keepdim(candle_core::D::Minus1)?;
-        let scale = max_val.affine(1.0 / 127.0, 0.0)?;
+        let scale = max_val.affine(1.0 / max_level as f64, 0.0)?;
         let scaled = float_tensor.broadcast_div(&scale.clamp(1e-10f32, f32::MAX)?)?;
         let quantized = scaled
-            .clamp(-127.0f32, 127.0f32)?
-            .round()?
-            .to_dtype(DType::I64)?;
-
-        Ok(QuantizedKvEntry {
-            data: quantized,
-            scale: Some(scale),
-            zero_point: None,
-            original_dtype: tensor.dtype(),
-        })
-    }
-
-    fn quantize_int4(&self, tensor: &Tensor) -> Result<QuantizedKvEntry> {
-        let float_tensor = tensor.to_dtype(DType::F32)?;
-        let max_val = float_tensor.abs()?.max_keepdim(candle_core::D::Minus1)?;
-        let scale = max_val.affine(1.0 / 7.0, 0.0)?;
-        let scaled = float_tensor.broadcast_div(&scale.clamp(1e-10f32, f32::MAX)?)?;
-        let quantized = scaled
-            .clamp(-7.0f32, 7.0f32)?
+            .clamp(-max_level, max_level)?
             .round()?
             .to_dtype(DType::I64)?;
 
