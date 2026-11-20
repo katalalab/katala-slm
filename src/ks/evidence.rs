@@ -30,6 +30,19 @@ pub enum EvidenceLevel {
     D,
 }
 
+impl EvidenceLevel {
+    /// Numeric quality of a level (A=1.0 .. D=0.1), shared by the eval metrics and the
+    /// DPO reward so both rank evidence on the same scale.
+    pub(crate) fn quality(self) -> f32 {
+        match self {
+            EvidenceLevel::A => 1.0,
+            EvidenceLevel::B => 0.7,
+            EvidenceLevel::C => 0.4,
+            EvidenceLevel::D => 0.1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AxisScores {
     pub accuracy: f32,

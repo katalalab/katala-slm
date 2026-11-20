@@ -105,10 +105,8 @@ impl BenchmarkHarness {
             self.questions.iter().map(|q| (q.id.as_str(), q)).collect();
 
         for answer in &self.answers {
-            let is_correct = question_map
-                .get(answer.question_id.as_str())
-                .map(|q| q.correct_answer == answer.selected_option)
-                .unwrap_or(false);
+            let question = question_map.get(answer.question_id.as_str());
+            let is_correct = question.is_some_and(|q| q.correct_answer == answer.selected_option);
 
             if is_correct {
                 correct += 1;
@@ -120,7 +118,7 @@ impl BenchmarkHarness {
             let evidence_key = format!("{:?}", answer.evidence_level);
             *evidence_dist.entry(evidence_key).or_default() += 1;
 
-            if let Some(q) = question_map.get(answer.question_id.as_str()) {
+            if let Some(q) = question {
                 if let Some(cat) = &q.category {
                     let entry = category_correct.entry(cat.clone()).or_insert((0, 0));
                     entry.1 += 1;

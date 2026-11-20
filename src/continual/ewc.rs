@@ -118,15 +118,17 @@ impl EwcRegularizer {
     /// Consolidate a new task's Fisher information
     pub fn consolidate(&mut self, fisher: &FisherInformation) {
         for (param_name, fisher_vals) in &fisher.fisher_diag {
-            if self.config.online && self.accumulated_fisher.contains_key(param_name) {
-                // Online EWC: F_new = γ * F_old + F_current
-                let existing = self.accumulated_fisher.get_mut(param_name).unwrap();
-                for (e, &f) in existing.iter_mut().zip(fisher_vals) {
-                    *e = self.config.gamma * *e + f;
+            match self.accumulated_fisher.get_mut(param_name) {
+                Some(existing) if self.config.online => {
+                    // Online EWC: F_new = γ * F_old + F_current
+                    for (e, &f) in existing.iter_mut().zip(fisher_vals) {
+                        *e = self.config.gamma * *e + f;
+                    }
                 }
-            } else {
-                self.accumulated_fisher
-                    .insert(param_name.clone(), fisher_vals.clone());
+                _ => {
+                    self.accumulated_fisher
+                        .insert(param_name.clone(), fisher_vals.clone());
+                }
             }
         }
 
@@ -139,15 +141,17 @@ impl EwcRegularizer {
         self.tasks_consolidated += 1;
     }
 
+    /// Accumulated Fisher diagonal and reference values for `param_name`, when both exist.
+    fn anchor(&self, param_name: &str) -> Option<(&[f32], &[f32])> {
+        let fisher = self.accumulated_fisher.get(param_name)?;
+        let reference = self.reference_params.get(param_name)?;
+        Some((fisher, reference))
+    }
+
     /// Compute EWC penalty: λ/2 * Σ_i F_i * (θ_i - θ*_i)²
     pub fn penalty(&self, param_name: &str, current_params: &[f32]) -> f32 {
-        let fisher = match self.accumulated_fisher.get(param_name) {
-            Some(f) => f,
-            None => return 0.0,
-        };
-        let reference = match self.reference_params.get(param_name) {
-            Some(r) => r,
-            None => return 0.0,
+        let Some((fisher, reference)) = self.anchor(param_name) else {
+            return 0.0;
         };
 
         let mut penalty = 0.0f32;
@@ -171,13 +175,8 @@ impl EwcRegularizer {
     /// Compute EWC gradient contribution for a parameter
     /// ∂L_ewc/∂θ_i = λ * F_i * (θ_i - θ*_i)
     pub fn penalty_gradient(&self, param_name: &str, current_params: &[f32]) -> Vec<f32> {
-        let fisher = match self.accumulated_fisher.get(param_name) {
-            Some(f) => f,
-            None => return vec![0.0; current_params.len()],
-        };
-        let reference = match self.reference_params.get(param_name) {
-            Some(r) => r,
-            None => return vec![0.0; current_params.len()],
+        let Some((fisher, reference)) = self.anchor(param_name) else {
+            return vec![0.0; current_params.len()];
         };
 
         let len = current_params.len().min(fisher.len()).min(reference.len());
