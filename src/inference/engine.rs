@@ -59,6 +59,10 @@ impl InferenceEngine {
 
     pub fn generate(&self, prompt: &str, options: GenerateOptions) -> Result<String> {
         let mut token_ids = self.tokenizer.encode(prompt)?;
+        anyhow::ensure!(
+            !token_ids.is_empty(),
+            "prompt produced no tokens; use a tokenizer matching the checkpoint"
+        );
         let sampler = Sampler::new(options.temperature, options.top_p);
 
         for _ in 0..options.max_new_tokens {

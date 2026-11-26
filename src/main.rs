@@ -1,12 +1,11 @@
-use std::{net::IpAddr, path::PathBuf, sync::Arc};
+use std::{net::IpAddr, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use katala_slm::{
-    inference::engine::{GenerateOptions, InferenceEngine},
+    inference::{engine::GenerateOptions, pretrained::PretrainedLlama},
     ks::citation::{CitationEvidence, CitationRequest},
-    model::config::ModelConfig,
-    serve::api::run_server,
+    serve::api::serve_checkpoint,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -24,7 +23,7 @@ enum Commands {
     VerifyCitation,
     Infer {
         #[arg(long)]
-        model: Option<PathBuf>,
+        model: PathBuf,
         #[arg(long)]
         prompt: String,
         #[arg(long)]
@@ -37,6 +36,8 @@ enum Commands {
         top_p: f64,
     },
     Serve {
+        #[arg(long)]
+        model: Option<PathBuf>,
         #[arg(long, default_value = "0.0.0.0")]
         bind: IpAddr,
         #[arg(long, default_value_t = 8080)]
@@ -51,7 +52,6 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let engine = || InferenceEngine::new(ModelConfig::default(), cli.cpu);
 
     match cli.command {
         Commands::VerifyCitation => {
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
             );
         }
         Commands::Infer {
-            model: _,
+            model,
             prompt,
             citation_evidence,
             max_new_tokens,
@@ -79,14 +79,18 @@ async fn main() -> Result<()> {
                 .transpose()?
                 .map(serde_json::from_reader)
                 .transpose()?;
-            let mut answer = engine()?.generate_verified(&prompt, options)?;
+            let mut answer =
+                PretrainedLlama::load(&model, cli.cpu)?.generate_verified(&prompt, options)?;
             if let Some(evidence) = evidence {
                 answer.citation_review = evidence.review(&answer.answer);
             }
             println!("{}", serde_json::to_string_pretty(&answer)?);
         }
-        Commands::Serve { bind, port } => {
-            run_server((bind, port).into(), Arc::new(engine()?)).await?;
+        Commands::Serve { bind, port, model } => {
+            let checkpoint = model
+                .map(|p| PretrainedLlama::load(&p, cli.cpu))
+                .transpose()?;
+            serve_checkpoint((bind, port).into(), checkpoint).await?;
         }
     }
 

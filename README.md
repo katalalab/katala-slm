@@ -107,11 +107,32 @@ CPU.
 ## Usage
 ```bash
 # Inference CLI
-cargo run --release -- infer --prompt "Influenza treatment options?"
+cargo run --release -- --cpu infer --model ./checkpoint --prompt "The capital of France is" --max-new-tokens 4
 
 # API server
-cargo run --release -- serve --bind 127.0.0.1 --port 8080
+cargo run --release -- --cpu serve --model ./checkpoint --bind 127.0.0.1 --port 8080
 ```
+
+Supply a local Llama-format checkpoint directory containing its matching
+`config.json`, `tokenizer.json`, and unsharded `model.safetensors`. The runtime
+uses the checkpoint's tokenizer, EOS settings, context limit, and learned
+weights. It returns only the newly generated continuation. Prompts use raw
+completion text; supply the model's chat template yourself for chat inputs.
+Missing or incompatible checkpoints fail at startup. No weights are bundled
+or downloaded at runtime.
+
+The CPU acceptance checkpoint is Hugging Face's general-language
+[SmolLM2-135M-Instruct, revision 12fd25f](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/tree/12fd25f77366fa6b3b4b768ec3050bf629380bac).
+The weights file SHA-256 is
+`5af571cbf074e6d21a03528d2330792e532ca608f24ac70a143f6b369968ab8c`.
+This model provides a reproducible generation check. Medical-domain validation
+requires its own model, evidence, and evaluation.
+
+Omitting `--model` on `serve` starts the citation endpoint alone.
+`GET /health` reports `generation_available`, and generation without a loaded
+model returns HTTP 503. Each server runs one generation at a time. A concurrent
+generation returns HTTP 429 while health and citation checks remain available.
+`infer` requires an explicit checkpoint.
 
 ### API Request
 ```bash
