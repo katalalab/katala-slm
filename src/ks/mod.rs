@@ -1,3 +1,4 @@
+pub mod citation;
 pub mod confidence;
 pub mod evidence;
 pub mod source;

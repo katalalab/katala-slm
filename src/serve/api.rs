@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     inference::engine::{GenerateOptions, InferenceEngine},
+    ks::citation::{CitationAbstention, CitationEvidence, CitationRequest, CitationReview},
     ks::evidence::AxisScores,
     ks::verify::VerifiedAnswer,
 };
@@ -23,6 +24,8 @@ struct ApiState {
 #[derive(Debug, Deserialize)]
 pub struct GenerateRequest {
     pub prompt: String,
+    #[serde(default)]
+    pub citation_evidence: CitationEvidence,
     pub max_new_tokens: Option<usize>,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
@@ -37,6 +40,7 @@ pub async fn run_server(addr: SocketAddr, engine: Arc<InferenceEngine>) -> Resul
     let state = ApiState { engine };
     let app = Router::new()
         .route("/health", get(health))
+        .route("/v1/medical/verify-citation", post(verify_citation))
         .route("/v1/medical/generate", post(generate_medical))
         .with_state(state);
 
@@ -47,6 +51,10 @@ pub async fn run_server(addr: SocketAddr, engine: Arc<InferenceEngine>) -> Resul
 
 async fn health() -> impl IntoResponse {
     Json(HealthResponse { status: "ok" })
+}
+
+async fn verify_citation(Json(req): Json<CitationRequest>) -> impl IntoResponse {
+    Json(req.evidence.review(&req.claim))
 }
 
 async fn generate_medical(
@@ -63,8 +71,15 @@ async fn generate_medical(
     let response: VerifiedAnswer = state
         .engine
         .generate_verified(&req.prompt, options)
+        .map(|mut response| {
+            response.citation_review = req.citation_evidence.review(&response.answer);
+            response
+        })
         .unwrap_or_else(|err| VerifiedAnswer {
             clinical_use: false,
+            citation_review: CitationReview::Abstained {
+                reason: CitationAbstention::GenerationFailed,
+            },
             answer: format!("Generation failed: {err}"),
             evidence_level: crate::ks::evidence::EvidenceLevel::D,
             axis_scores: AxisScores::new(0.0),

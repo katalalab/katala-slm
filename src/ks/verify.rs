@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
+    citation::CitationReview,
     confidence::{ConfidenceScore, ConfidenceScorer},
     evidence::{AxisScores, EvidenceClassifier, EvidenceLevel},
     source::{SourceAttribution, SourceAttributionTracker},
@@ -16,6 +17,8 @@ pub struct VerifiedAnswer {
     /// decision support by accident.
     pub clinical_use: bool,
     pub answer: String,
+    #[serde(default)]
+    pub citation_review: CitationReview,
     pub evidence_level: EvidenceLevel,
     pub axis_scores: AxisScores,
     pub composite_score: f32,
@@ -47,6 +50,7 @@ impl Verifier {
 
         VerifiedAnswer {
             clinical_use: false,
+            citation_review: CitationReview::default(),
             answer: answer.to_string(),
             evidence_level: assessment.evidence_level,
             axis_scores: assessment.axis_scores,
