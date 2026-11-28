@@ -110,7 +110,7 @@ CPU.
 cargo run --release -- infer --prompt "Influenza treatment options?"
 
 # API server
-cargo run --release -- serve --port 8080
+cargo run --release -- serve --bind 127.0.0.1 --port 8080
 ```
 
 ### API Request
@@ -137,3 +137,29 @@ curl -X POST http://localhost:8080/v1/medical/generate \
   "contraindications": []
 }
 ```
+
+### Check a quotation against supplied passages
+
+`verify-citation` reads a claim and its source passages as JSON on stdin. The same
+request is accepted by `POST /v1/medical/verify-citation`. The CLI runs without
+initializing a model. Use one unique identifier per passage, such as an article
+ID plus paragraph number.
+
+```sh
+printf '%s\n' '{"claim":"The line is blue.","cited_source_id":"example#2","passages":[{"source_id":"example#1","text":"The line is blue."}]}' | katala-slm verify-citation
+```
+
+This example returns `{"status":"rebound","source_id":"example#1"}`.
+`exact_passage` retains an existing matching identifier. The check compares
+the full claim to the full supplied passage after trimming outer whitespace.
+Missing evidence, an unmatched quotation, ambiguous rebinding and invalid
+passage records return `abstained` with a reason. Passage identity does not
+establish source authenticity, semantic entailment or clinical suitability.
+
+For generated answers, put `passages` and optional `cited_source_id` in the
+request's `citation_evidence` object, or pass that object in a JSON file with
+`infer --citation-evidence FILE`. The resulting `citation_review` describes the
+whole answer. Prompt-selected source suggestions alone produce an abstention.
+Research clients that require verbatim grounding should withhold responses
+whose citation review abstains. Existing callers still receive the answer and
+contraindication labels.
